@@ -1,0 +1,81 @@
+import json
+import pandas as pd
+import networkx as nx
+import random
+
+
+# 读取作者结果数据
+def load_author_metrics(file_path):
+    author_metrics = {}
+    with open(file_path, 'r') as f:
+        for line in f:
+            author_id, h_index, degree_centrality, gap_year = line.strip().split()
+            author_metrics[author_id] = {
+                'h_index': int(h_index),
+                'degree_centrality': float(degree_centrality),
+                'gap_year': int(gap_year)
+            }
+    return author_metrics
+
+
+# 读取合作网络数据
+def load_co_authorship_network(file_path):
+    edges = pd.read_csv(file_path, sep='\t', header=None)
+    return nx.from_pandas_edgelist(edges, 0, 1)
+
+
+# 选择团队领导者
+def select_team_leaders(author_metrics):
+    avg_degree = sum(metrics['degree_centrality'] for metrics in author_metrics.values()) / len(author_metrics)
+    avg_h_index = sum(metrics['h_index'] for metrics in author_metrics.values()) / len(author_metrics)
+
+    candidates = [
+        author_id for author_id, metrics in author_metrics.items()
+        if metrics['degree_centrality'] >= avg_degree and metrics['h_index'] >= avg_h_index
+    ]
+
+    # 计算GapYear并选择真实领导者
+    leaders = sorted(candidates, key=lambda x: author_metrics[x]['gap_year'])
+
+    return leaders[:len(candidates)]  # 返回活动性最强的领导者
+
+
+# 构建团队并保存到文件
+def build_and_save_teams(G, leaders, output_file):
+    with open(output_file, 'w') as f:
+        team_count = 0
+        for index, leader in enumerate(leaders, start=1):  # 从1开始编号
+            team_members = list(G.neighbors(leader))  # 获取与领导者直接相连的作者
+
+            # 随机选择部分团队成员以确保团队规模不超过10
+            if len(team_members) > 10:
+                team_size = random.randint(1, 10)  # 随机选择1到10个成员
+                team_members = random.sample(team_members, min(team_size, len(team_members)))
+            elif len(team_members) < 1:  # 确保至少有领导者
+                team_members = [leader]
+
+            team_members.insert(0, leader)  # 包括领导者
+
+            f.write(f"Community 2023{index}:\n")  # 社区编号
+            for member in team_members:
+                f.write(f"{member}\n")  # 写入团队成员
+
+            f.write("\n")  # 每个社区之间空一行
+            team_count += 1
+
+            if team_count >= 1000:  # 限制团队数量不超过1000
+                break
+
+
+# 主程序
+def main(author_metrics_file, co_authorship_file, output_file):
+    author_metrics = load_author_metrics(author_metrics_file)
+    G = load_co_authorship_network(co_authorship_file)
+
+    team_leaders = select_team_leaders(author_metrics)
+    build_and_save_teams(G, team_leaders, output_file)
+    print("社区信息已保存到文件:", output_file)
+
+
+# 调用主程序
+main('author_metrics.txt', 'author_author.txt', 'communities.txt')
